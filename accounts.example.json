@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "accounts": [
+    {
+      "id": "primary",
+      "label": "Main account",
+      "token": "eyJhbGciOi...replace-with-a-real-token",
+      "tags": ["default"]
+    },
+    {
+      "id": "alt-1",
+      "label": "Second account, routed over Tor",
+      "token": "eyJhbGciOi...second-token",
+      "proxy": "tor",
+      "tags": ["tor"]
+    },
+    {
+      "id": "alt-2",
+      "label": "Token supplied by the environment instead of the file",
+      "tokenEnv": "PUTER_TOKEN_ALT2",
+      "proxy": "socks5h://127.0.0.1:9150"
+    }
+  ]
+}
