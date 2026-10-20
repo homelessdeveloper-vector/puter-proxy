@@ -18,7 +18,7 @@
 
 import { createRequire } from 'node:module';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { ProxyAgent } from 'undici';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import { logger, maskToken } from '../logger.js';
 
 const require = createRequire(import.meta.url);
@@ -92,8 +92,14 @@ export const toDispatcherUrl = (url) => url.replace(/^socks5h:\/\//i, 'socks5://
  * @param {string | null} proxyUrl
  * @param {{ disableSdkRetry: boolean }} opts
  */
-function buildFetch(proxyUrl, { disableSdkRetry }) {
-    const base = globalThis.fetch;
+export function buildFetch(proxyUrl, { disableSdkRetry }) {
+    // Node's built-in `fetch` and the installed `undici` package are two
+    // separate module instances. Handing a ProxyAgent from one to the other
+    // fails with UND_ERR_INVALID_ARG ("invalid onRequestStart method"), which
+    // surfaces as a generic "Upstream request failed" — indistinguishable from
+    // a dead proxy. When a dispatcher is needed, the fetch must come from the
+    // same instance that produced it.
+    const base = proxyUrl ? undiciFetch : globalThis.fetch;
 
     let dispatcher;
     if (proxyUrl) {

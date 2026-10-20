@@ -15,6 +15,7 @@ client ──X-API-Key──▶ puter-proxy ──account pool──▶ api.pute
 ## Contents
 
 - [Quick start](#quick-start)
+- [Installing on a server](#installing-on-a-server)
 - [Configuration](#configuration)
 - [The API](#the-api)
 - [Operations](#operations)
@@ -84,6 +85,127 @@ curl -s http://127.0.0.1:8080/v1/execute \
 > Run with no `API_KEYS` in development and the server generates a throwaway key,
 > printing it to stderr once at boot. It refuses to start without keys when
 > `NODE_ENV=production`.
+
+---
+
+## Installing on a server
+
+### 1. Prerequisites
+
+- **Node.js 20 or newer** — `node --version`
+- **Tor** if you want the tunnel (see [Tor and per-account egress](#tor-and-per-account-egress))
+
+```bash
+# macOS
+brew install node tor
+
+# Debian / Ubuntu
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs tor
+```
+
+### 2. Clone and install
+
+```bash
+git clone https://github.com/homelessdeveloper-vector/puter-proxy.git
+cd puter-proxy
+npm ci --omit=dev
+```
+
+### 3. Configure
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+Generate two keys — one for clients, one for you:
+
+```bash
+for name in client admin; do
+  KEY=$(openssl rand -hex 32)
+  HASH=$(printf '%s' "$KEY" | shasum -a 256 | cut -d' ' -f1)
+  echo "$name key:  $KEY"
+  echo "$name hash: $HASH"
+done
+```
+
+Put the **hashes** in `.env` — never the keys themselves:
+
+```dotenv
+NODE_ENV=production
+HOST=127.0.0.1
+PORT=8080
+
+API_KEYS=client:sha256:<client-hash>|execute,admin:sha256:<admin-hash>|execute+admin
+
+PUTER_AUTH_TOKEN=<your puter token>
+
+# Route everything through Tor
+PUTER_PROXY=tor
+```
+
+> The `sha256:` prefix is mandatory. `openssl rand -hex 32` and a SHA-256 digest
+> are both exactly 64 hex characters, so a missing prefix looks valid and fails
+> silently at request time. The server logs each key's mode at boot
+> (`api_keys:["client(sha256)","admin(sha256)"]`) so you can confirm.
+
+### 4. Run it under a supervisor
+
+A foreground `npm start` dies with your shell. Use systemd:
+
+```ini
+# /etc/systemd/system/puter-proxy.service
+[Unit]
+Description=puter-proxy
+After=network-online.target tor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=puter
+WorkingDirectory=/opt/puter-proxy
+EnvironmentFile=/opt/puter-proxy/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now puter-proxy
+sudo journalctl -u puter-proxy -f
+```
+
+On macOS, use `launchd` or `pm2 start src/index.js --name puter-proxy`.
+
+### 5. Verify
+
+```bash
+curl -s http://127.0.0.1:8080/health
+curl -s http://127.0.0.1:8080/v1/accounts -H "X-API-Key: <admin-key>"
+curl -s http://127.0.0.1:8080/v1/accounts/primary/egress -H "X-API-Key: <admin-key>"
+```
+
+The last one should report `"is_tor": true` if Tor is wired correctly.
+
+### 6. Expose it safely
+
+Keep `HOST=127.0.0.1` and put a TLS terminator in front — Caddy is two lines:
+
+```
+proxy.yourdomain.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+Then set `TRUST_PROXY=1` in `.env` so rate limiting keys off the real client IP
+instead of the proxy's.
 
 ---
 
@@ -387,11 +509,45 @@ Verify a route end to end:
 ```bash
 curl -s http://127.0.0.1:8080/v1/accounts/acct-b/egress \
   -H "X-API-Key: $ADMIN_KEY"
-# {"ok":true,"account":"acct-b","proxy":"tor","reachable":true,...}
 ```
+
+```json
+{
+  "ok": true,
+  "account": "acct-b",
+  "proxy": "tor",
+  "reachable": true,
+  "duration_ms": 1739,
+  "exit": { "checked": true, "is_tor": true, "exit_ip": "45.66.35.39" }
+}
+```
+
+`exit.is_tor` is the important field. A `reachable: true` only proves the
+SOCKS port accepted a connection; `is_tor: true` proves the traffic actually
+left through a Tor exit node, from the exit node's own point of view. Both
+checks run in parallel, so a broken tunnel still reports `exit` rather than
+being hidden behind a failed upstream call.
 
 An unreachable proxy is treated as a transport fault: the account cools down,
 the request fails over to another account, and `/health` stays `200`.
+
+### Troubleshooting
+
+| Symptom | Cause |
+| --- | --- |
+| `is_tor: null`, `error: "fetch failed"` | Tor not bootstrapped yet — wait for `Bootstrapped 100%` |
+| `is_tor: false` | You are pointed at a plain SOCKS proxy, not Tor |
+| Everything fails over at once | Tor daemon died; restart it under a supervisor |
+| Works for hours, then stops | Exit node rotated to one Puter blocks; the pool cools it down and retries |
+| Slow first request only | Circuit build (~2–3s); subsequent calls reuse it |
+
+Tor adds roughly 2.5s per request to `api.puter.com` versus ~0.1s direct. That
+is the cost of the anonymity, not a bug.
+
+> **Tor cannot reach `127.0.0.1`.** If `PUTER_API_ORIGIN` points at a local mock
+> or a sidecar on loopback, those requests will fail with `PUTER_PROXY=tor` —
+> the exit node has no route back to your machine. Use a real origin, or leave
+> that account `"proxy": null`.
 
 ---
 

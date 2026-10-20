@@ -10,7 +10,7 @@ import { loadConfig, digestKey } from '../src/config.js';
 import { AccountRegistry } from '../src/accounts/registry.js';
 import { createApp } from '../src/app.js';
 import { maskToken } from '../src/logger.js';
-import { normalizeProxyUrl, toDispatcherUrl } from '../src/puter/client.js';
+import { normalizeProxyUrl, toDispatcherUrl, buildFetch } from '../src/puter/client.js';
 
 const KEY = 'k'.repeat(40);
 
@@ -578,4 +578,38 @@ test('socks5h is rewritten to socks5 for undici, keeping remote DNS', () => {
     assert.equal(toDispatcherUrl('socks5h://127.0.0.1:9050'), 'socks5://127.0.0.1:9050');
     assert.equal(toDispatcherUrl('socks5://127.0.0.1:9050'), 'socks5://127.0.0.1:9050');
     assert.equal(toDispatcherUrl('http://proxy:3128'), 'http://proxy:3128');
+});
+
+// --- Proxied transport ----------------------------------------------------
+// Regression: Node's built-in fetch and the installed undici package are
+// separate module instances, so a ProxyAgent built by one is rejected by the
+// other with UND_ERR_INVALID_ARG. The SDK reported that as a generic
+// "Upstream request failed", which looked exactly like a dead proxy — Tor was
+// silently non-functional while every test still passed.
+
+test('a proxied fetch uses the undici instance that built the dispatcher', async () => {
+    // A dead port is fine: the point is that the error is a connection
+    // failure, not a dispatcher/instance mismatch.
+    const proxied = buildFetch('socks5h://127.0.0.1:1', { disableSdkRetry: true });
+    await assert.rejects(
+        () => proxied('http://127.0.0.1:1/never'),
+        (err) => {
+            const cause = err?.cause?.code ?? err?.code ?? '';
+            assert.ok(
+                !String(cause).includes('UND_ERR_INVALID_ARG'),
+                `dispatcher was rejected by the wrong undici instance (${cause})`,
+            );
+            return true;
+        },
+    );
+});
+
+test('buildFetch reports an invalid proxy instead of failing at request time', () => {
+    // undici validates lazily: "socks5://" is accepted, but an out-of-range
+    // port throws at construction. Either way the operator must see this at
+    // boot rather than as a per-request "Upstream request failed".
+    assert.throws(
+        () => buildFetch('socks5h://host:99999', { disableSdkRetry: true }),
+        /Invalid proxy/i,
+    );
 });

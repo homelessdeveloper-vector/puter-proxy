@@ -15,3 +15,7 @@ accounts.local.json
 node_modules/
 npm-debug.log*
 .DS_Store
+
+# Local key files
+*.key
+.key
