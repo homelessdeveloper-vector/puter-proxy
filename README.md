@@ -15,6 +15,7 @@ client ──X-API-Key──▶ puter-proxy ──account pool──▶ api.pute
 ## Contents
 
 - [Quick start](#quick-start)
+- [The macOS app](#the-macos-app)
 - [Installing on a server](#installing-on-a-server)
 - [Configuration](#configuration)
 - [The API](#the-api)
@@ -85,6 +86,113 @@ curl -s http://127.0.0.1:8080/v1/execute \
 > Run with no `API_KEYS` in development and the server generates a throwaway key,
 > printing it to stderr once at boot. It refuses to start without keys when
 > `NODE_ENV=production`.
+
+---
+
+## The macOS app
+
+`macapp/` builds a self-contained `.app` that bundles Node, Tor, and the server,
+so nothing has to be installed first. It adds a window, a setup wizard, key
+management, a model picker, and account health checks on top of the same server
+code — the app is a front end, not a second implementation.
+
+### Build
+
+Requires only the Xcode command line tools (`swiftc`), not full Xcode.
+
+```bash
+cd macapp
+./build.sh              # build
+./build.sh --open       # build and launch
+./build.sh --no-runtime # skip bundling Node/Tor (falls back to system binaries)
+```
+
+The bundle lands at `macapp/dist/Puter Proxy.app` (~142 MB) and is ad-hoc signed.
+
+### First run
+
+On first launch the app tries to come up **without asking anything**:
+
+1. Looks for an existing credential — current config, `PUTER_AUTH_TOKEN`,
+   then `~/.puter-token`, `~/.config/puter/token`, `~/.config/puter-proxy/token`.
+2. Verifies each candidate against Puter through the chosen egress.
+3. Drops the ones that are rejected and keeps the rest.
+4. Starts Tor (if selected) and the server on `127.0.0.1:8080`.
+
+Only when nothing usable is found does the wizard appear. Everything is written
+to `~/Library/Application Support/PuterProxy/` (mode 0600), never into the
+bundle, so the app works from `/Applications`.
+
+The window shows the client key, the admin key, the endpoint, the selected model,
+per-account health dots, and a live server log. Keys are copyable from the UI —
+which answers "where is my local API key" more directly than a file path.
+
+### Command-line modes
+
+Useful for testing and for running without a desktop session:
+
+```bash
+BIN="dist/Puter Proxy.app/Contents/MacOS/PuterProxy"
+
+"$BIN" --self-test          # verify the bundle: binaries, deps, writable dirs
+"$BIN" --discover           # list credentials found on this machine
+"$BIN" --headless --token <token> --egress tor --port 8080
+```
+
+`--self-test` exits non-zero on failure, so it can gate a build. The expected
+output is ten PASS lines:
+
+```
+PASS  Node runtime
+PASS  Tor binary
+PASS  Server entry point
+PASS  Config directory writable
+PASS  Node executes
+PASS  dependency express
+PASS  dependency helmet
+PASS  dependency undici
+PASS  dependency @heyputer/puter.js
+PASS  Tor executes
+```
+
+### Models
+
+The picker ships a catalogue grouped by vendor, each marked free or paid. You can
+also type any model ID, which is what you want when a provider ships something new:
+
+| Vendor | Models |
+| --- | --- |
+| OpenAI | `gpt-4o-mini` (free), `gpt-4o`, `gpt-4.1`, `gpt-4.1-mini` (free), `o3-mini` |
+| Anthropic | `claude-sonnet-4`, `claude-3-5-sonnet`, `claude-3-haiku` (free) |
+| Google | `gemini-2.0-flash` (free), `gemini-1.5-pro` |
+| DeepSeek | `deepseek-chat` (free), `deepseek-reasoner` |
+| Mistral | `mistral-large-latest` |
+| Meta | `llama-3.3-70b` (free) |
+
+The catalogue is a convenience, not a restriction — the server accepts whatever
+the selected account can reach.
+
+### Accounts
+
+The app manages a pool of tokens **you** supply. It discovers, verifies,
+rotates, and prunes them automatically, and restarts Tor if the daemon dies
+(three attempts, then it stops and says so rather than spinning).
+
+It does **not** create Puter accounts. Registering identities programmatically
+to get around per-account limits is circumvention of Puter's terms, not
+configuration, so the pool stays limited to credentials the operator provides.
+Adding an account is a paste in the UI or a line in `accounts.json`.
+
+### What the app owns
+
+Processes are reference-counted against the app:
+
+- Exiting the app stops the server and the Tor it started.
+- If Tor was already running on 9050 when the app launched, the app **adopts**
+  it — uses it for egress but never kills it, because it belongs to something
+  else.
+- The server runs under a small launcher shim that watches its parent, so a
+  force-quit cannot leave an orphaned Node process holding the port.
 
 ---
 

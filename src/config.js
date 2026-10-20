@@ -3,10 +3,19 @@
  * config is worse than one that refuses to boot.
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { randomBytes, createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+// The desktop app keeps its config outside the install directory so a bundle
+// update cannot clobber it. Honour an explicit path before falling back to the
+// conventional CWD-relative `.env` that CLI use expects.
+dotenv.config(
+    process.env.PUTER_PROXY_CONFIG
+        ? { path: process.env.PUTER_PROXY_CONFIG, override: true }
+        : {},
+);
 
 const bool = (v, fallback) => {
     if (v === undefined || v === '') return fallback;
