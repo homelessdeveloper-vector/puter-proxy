@@ -179,14 +179,19 @@
     <h2>Accounts</h2>
     <div id="acctList"></div>
     <div class="row" style="margin-top:12px">
+      <button onclick="signIn()" style="flex:1">Create or sign in with Puter…</button>
+    </div>
+    <div class="row" style="margin-top:8px">
       <div class="grow"><input type="text" id="newLabel" placeholder="Label, e.g. personal"></div>
-      <div class="grow" style="flex:2"><input type="password" id="newToken" placeholder="Puter auth token"></div>
+      <div class="grow" style="flex:2"><input type="password" id="newToken" placeholder="…or paste a token you already have"></div>
       <button onclick="addAccount()">Add</button>
     </div>
     <div class="hint">
       Each account is an independent Puter identity. Requests are load-balanced
-      across them and failed ones cool down automatically. Get a token from
-      puter.com while signed in.
+      across them and failed ones cool down automatically.
+      The button opens Puter's own sign-in page, where you can create a new
+      account or sign in to an existing one — the app only receives the token
+      Puter issues, never your password.
     </div>
   </div>
 
@@ -382,6 +387,18 @@ async function savePrefs() {
     banner('Settings saved. Restart the server to apply.', 'ok');
   } catch (e) {
     banner(e.message, 'err');
+  }
+}
+
+async function signIn() {
+  try {
+    banner('Opening Puter sign-in…', 'ok');
+    const r = await native('signIn', {});
+    state = await native('state');
+    render();
+    banner(r && r.message ? r.message : 'Account added.', 'ok');
+  } catch (e) {
+    banner(e.message || String(e), 'err');
   }
 }
 

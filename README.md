@@ -178,10 +178,33 @@ The app manages a pool of tokens **you** supply. It discovers, verifies,
 rotates, and prunes them automatically, and restarts Tor if the daemon dies
 (three attempts, then it stops and says so rather than spinning).
 
-It does **not** create Puter accounts. Registering identities programmatically
-to get around per-account limits is circumvention of Puter's terms, not
-configuration, so the pool stays limited to credentials the operator provides.
-Adding an account is a paste in the UI or a line in `accounts.json`.
+**Adding an account** has two paths:
+
+1. **Create or sign in with Puter…** — opens Puter's own sign-in page in the
+   app. You can create a new account there or sign in to an existing one. Puter
+   renders the form, verifies the email, and issues the token; the app receives
+   only the finished token and never sees a password. The web view is
+   non-persistent, so adding a second account is not blocked by the first
+   session's cookies.
+2. **Paste a token** — for a token you already have.
+
+**Via the HTTP API**, both `POST /v1/accounts` and `DELETE /v1/accounts/:id` let
+you manage the pool without the UI:
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/accounts \
+  -H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"token":"<puter-token>","label":"work","tags":["api"]}'
+# 201 {"ok":true,"account":{"id":"acct-f262…","label":"work","proxy":"direct"}}
+```
+
+What the API does **not** do is mint a brand-new Puter identity server-side.
+Account creation on Puter is a browser flow — the SDK has no signup endpoint,
+only `puter.auth.signIn`, which loads `puter.com` and lets that page drive the
+exchange. Automating it headlessly would mean scripting their web form to
+manufacture identities, which is precisely the account-farming behaviour this
+project avoids. The token from a legitimate sign-up drops straight into
+`POST /v1/accounts`, so the API path covers everything after that step.
 
 ### What the app owns
 

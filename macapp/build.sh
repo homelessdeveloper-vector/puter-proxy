@@ -45,6 +45,7 @@ SWIFT_SRC=(
   "$HERE/Sources/App.swift"
   "$HERE/Sources/Supervisor.swift"
   "$HERE/Sources/Autopilot.swift"
+  "$HERE/Sources/SignInWindow.swift"
   "$HERE/Sources/Config.swift"
 )
 
@@ -82,6 +83,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <!-- Puter's sign-in page and SDK; loaded in a web view, HTTPS only. -->
+      <key>puter.com</key><dict><key>NSExceptionAllowsInsecureHTTPLoads</key><false/><key>NSIncludesSubdomains</key><true/></dict>
+      <key>js.puter.com</key><dict><key>NSIncludesSubdomains</key><true/></dict>
+    </dict>
   </dict>
 </dict>
 </plist>
@@ -90,6 +97,7 @@ PLIST
 # ---------------------------------------------------------------- UI
 echo "==> Copying UI"
 cp "$HERE/Sources/ui/index.html" "$APP/Contents/Resources/index.html"
+cp "$HERE/Sources/ui/account.html" "$APP/Contents/Resources/account.html"
 
 # The supervisor shim lives beside the executable so it is always found.
 cp "$HERE/Sources/launcher.js" "$APP/Contents/MacOS/launcher.js"

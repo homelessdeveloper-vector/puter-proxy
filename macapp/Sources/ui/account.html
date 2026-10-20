@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light; }
+  html, body {
+    margin: 0; height: 100%;
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    background: #fbfbfd; color: #1d1d1f;
+  }
+  .wrap {
+    height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 24px; box-sizing: border-box; gap: 14px;
+  }
+  h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.2px; }
+  p  { margin: 0; color: #6e6e73; max-width: 380px; }
+  button {
+    margin-top: 6px; padding: 9px 22px; font-size: 13px; font-weight: 500;
+    border: 0; border-radius: 8px; background: #0071e3; color: #fff;
+    cursor: pointer; font-family: inherit;
+  }
+  button:hover { background: #0077ed; }
+  button:disabled { background: #c7c7cc; cursor: default; }
+  #status { min-height: 18px; font-size: 12px; color: #6e6e73; }
+  .err { color: #b3261e; }
+  .small { font-size: 11px; color: #86868b; max-width: 380px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Add a Puter account</h1>
+  <p>Puter handles the sign-in. This window never sees your password — only the
+     token Puter returns at the end.</p>
+  <button id="go">Continue with Puter</button>
+  <div id="status">Checking that the Puter library loaded…</div>
+  <div class="small">Pick "create account" in the Puter window to make a new one,
+     or sign in to an existing account to add it to the pool.</div>
+</div>
+
+<script src="https://js.puter.com/v2/"></script>
+<script>
+(function () {
+  const btn = document.getElementById('go');
+  const status = document.getElementById('status');
+
+  function post(payload) {
+    try {
+      window.webkit.messageHandlers.puterAuth.postMessage(payload);
+    } catch (e) {
+      // Running outside the app shell; nothing to report to.
+      console.log('postMessage failed', e);
+    }
+  }
+
+  function say(text, isError) {
+    status.textContent = text;
+    status.className = isError ? 'err' : '';
+  }
+
+  if (!window.puter || !puter.auth) {
+    say('The Puter library did not load. Check your connection and reopen this window.', true);
+    btn.disabled = true;
+    post({ ok: false, error: 'puter.js failed to load' });
+    return;
+  }
+
+  say('Ready. Nothing is sent until you press the button.');
+
+  // signIn must run inside a user gesture, so the click handler does the work.
+  btn.addEventListener('click', async function () {
+    btn.disabled = true;
+    say('Opening Puter…');
+    try {
+      const result = await puter.auth.signIn({ attempt_temp_user_creation: true });
+      if (result && result.token) {
+        say('Signed in. Adding the account…');
+        post({
+          ok: true,
+          token: result.token,
+          username: result.username || '',
+        });
+      } else {
+        const detail = (result && (result.error || result.msg)) || 'no token returned';
+        say('Puter did not return a token: ' + detail, true);
+        post({ ok: false, error: String(detail) });
+      }
+    } catch (e) {
+      // The SDK rejects with plain objects rather than Error instances.
+      const detail = (e && (e.error || e.message)) || String(e);
+      say('Sign-in failed: ' + detail, true);
+      post({ ok: false, error: String(detail) });
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -44,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var supervisor: Supervisor!
     var prefs = Prefs.load()
     private var readiness: DispatchWorkItem?
+    /// Retained while Puter's sign-in window is open.
+    private var signInWindow: SignInWindow?
 
     // MARK: Lifecycle
 
@@ -359,6 +361,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             reply(nil)
         case "addAccount":
             reply(addAccount(args))
+        case "signIn":
+            // Asynchronous: the answer arrives from the sign-in window later.
+            beginSignIn(reply: reply)
         case "removeAccount":
             reply(removeAccount(args))
         case "copy":
@@ -475,6 +480,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             prefs.defaultModel = v
         }
         prefs.save()
+    }
+
+    /// Opens Puter's own sign-in page and adopts whatever token comes back.
+    /// Account creation happens on Puter's side; this only performs the handoff.
+    func beginSignIn(reply: @escaping (Any?) -> Void) {
+        // Only one at a time: two windows would race to write the pool.
+        guard signInWindow == nil else {
+            reply(NSError(domain: "app", code: 9,
+                          userInfo: [NSLocalizedDescriptionKey: "A sign-in window is already open."]))
+            return
+        }
+        let w = SignInWindow()
+        signInWindow = w
+
+        w.present { [weak self] token, error in
+            guard let self else { return }
+            self.signInWindow = nil
+
+            guard let token, !token.isEmpty else {
+                reply(NSError(domain: "app", code: 10,
+                              userInfo: [NSLocalizedDescriptionKey: error ?? "Sign-in did not complete."]))
+                return
+            }
+            // Reuse the normal add path so dedupe and labelling behave the same
+            // whether the token came from a paste or from Puter.
+            let result = self.addAccount(["token": token, "label": "puter"])
+            self.supervisor.log.append("[auth] token received from Puter sign-in")
+            reply(result)
+            self.reloadUI()
+        }
     }
 
     func addAccount(_ d: [String: Any]) -> Any? {
