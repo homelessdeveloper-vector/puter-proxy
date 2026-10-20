@@ -459,6 +459,12 @@ curl -s --socks5-hostname 127.0.0.1:9050 https://check.torproject.org/api/ip
 # {"IsTor":true,"IP":"185.x.x.x"}
 ```
 
+Or let the bundled helper start it, find it, and prove it:
+
+```bash
+npm run tor:start     # starts if needed, then verifies the exit is really Tor
+```
+
 If `IsTor` is `true`, the daemon and the circuit are both fine. If that command
 hangs, Tor has not finished bootstrapping — check
 `journalctl -u tor -n 20` (Linux) or `~/Library/Logs/homebrew/services/tor.log`
@@ -469,17 +475,18 @@ hangs, Tor has not finished bootstrapping — check
 
 ### Running Tor without installing it
 
-If a package manager is unavailable, Tor Browser ships a full daemon:
+If a package manager is unavailable, `scripts/start-tor.sh` falls back to the
+daemon bundled with Tor Browser:
 
 ```bash
-"/Applications/Tor Browser.app/Contents/MacOS/Tor/tor" \
-  --SocksPort 9050 --ControlPort 9051 \
-  --DataDirectory "$HOME/.tor-puter-proxy"
+npm run tor:start
 ```
 
-Run it under a supervisor (`brew services`, `systemd`, `launchd`, `tmux`) — a
-daemon started from an interactive shell dies with the shell, which shows up as
-every request failing over and the pool draining.
+It starts the daemon detached (so it survives the calling shell), waits for
+bootstrap, and confirms the exit IP is Tor. Run it under a real supervisor —
+`brew services`, `systemd`, `launchd` — for anything long-lived. A daemon
+started from an interactive shell dies with the shell, which shows up as every
+request failing over and the pool draining.
 
 ### Per-account egress
 
